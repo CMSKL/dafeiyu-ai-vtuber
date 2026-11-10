@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tools import caption_printer as service
@@ -106,6 +108,68 @@ class WorkHTTPTests(unittest.TestCase):
     def test_invalid_payload_is_400(self):
         for payload in ([], {"action": "set_salary"}, {"action": {}}):
             self.assertEqual(self.request("POST", "/work/control", payload)[0], 400)
+
+    def test_get_state_never_checkpoints_and_countdown_is_continuous(self):
+        deadline = self.work.snapshot()["ends_at"]
+        with patch.object(self.work, "_save", wraps=self.work._save) as save:
+            for step in range(1, 11):
+                self.now = 1000 + step / 2
+                status, _, data = self.request("GET", "/state")
+                self.assertEqual(status, 200)
+                work = data["work"]
+                self.assertEqual(work["ends_at"], deadline)
+                self.assertEqual(work["salary"], step * 5)
+                self.assertEqual(work["ends_at"] - work["server_now"], 60 - step / 2)
+            self.assertEqual(save.call_count, 0)
+            self.work.checkpoint()
+            self.assertEqual(save.call_count, 1)
+
+    def test_empty_event_post_retries_return_the_same_active_event(self):
+        status, _, first = self.request("POST", "/work/event", {})
+        self.assertEqual(status, 200)
+        for payload in ({}, {"event_id": ""}, {"event_id": "another"}):
+            status, _, retry = self.request("POST", "/work/event", payload)
+            self.assertEqual(status, 200)
+            self.assertEqual(retry, first)
+
+    def test_tick_survives_non_os_errors_and_retries_checkpoint(self):
+        class ThreeTicks:
+            count = 0
+
+            def wait(inner, interval):
+                inner.count += 1
+                self.now += interval
+                return inner.count > 3
+
+        real_save = self.work._save
+        calls = []
+
+        def failing_save(state):
+            calls.append(state["settled_at"])
+            if len(calls) <= 2:
+                raise ValueError("Out of range float values are not JSON compliant: inf")
+            real_save(state)
+
+        with patch.object(self.work, "_save", side_effect=failing_save), patch.object(service, "emit") as log:
+            worker = threading.Thread(target=service.run_work_clock, args=(self.work, ThreeTicks()))
+            worker.start()
+            worker.join(timeout=2)
+            self.assertFalse(worker.is_alive())  # It reached the stop condition.
+        self.assertEqual(calls, [1001, 1001, 1002, 1003])
+        self.assertEqual(log.call_count, 2)
+        self.assertEqual(log.call_args_list[0].args[0]["event"], "WORK_CHECKPOINT_FAILED")
+        self.assertEqual(log.call_args_list[1].args[0]["event"], "WORK_CHECKPOINT_RETRY_FAILED")
+        self.assertIn("ValueError", log.call_args_list[0].args[0]["error"])
+        self.assertEqual(json.loads(self.work.path.read_text())["salary"], 30)
+
+    def test_invalid_checkpoint_recovers_before_handler_is_used(self):
+        self.work.path.write_text("{")
+        with self.assertLogs("utils.work_state", level="WARNING"):
+            self.server.work = WorkState(self.work.path, clock=lambda: self.now)
+        status, _, data = self.request("GET", "/state")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["work"]["salary"], 0)
+        self.assertEqual(len(list(self.work.path.parent.glob("work.json.bad-*"))), 1)
 
 
 if __name__ == "__main__":

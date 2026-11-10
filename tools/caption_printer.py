@@ -82,6 +82,19 @@ def emit(event):
         pass
 
 
+def run_work_clock(work, stop):
+    """Checkpoint once per second. A failed tick must not kill the worker."""
+    while not stop.wait(1):
+        try:
+            work.checkpoint()
+        except Exception as error:
+            emit({'event': 'WORK_CHECKPOINT_FAILED', 'error': repr(error)})
+            try:
+                work.checkpoint()
+            except Exception as retry_error:
+                emit({'event': 'WORK_CHECKPOINT_RETRY_FAILED', 'error': repr(retry_error)})
+
+
 class Handler(BaseHTTPRequestHandler):
     def allowed_origin(self):
         origin = self.headers.get('Origin', '')
@@ -225,13 +238,18 @@ if __name__ == '__main__':
     server = ThreadingHTTPServer(('127.0.0.1', 5500), Handler)
     server.work = WorkState(OUT / 'work-state.json')
     # Work and events keep running even when there are no browser viewers.
-    def tick():
-        while True:
-            time.sleep(1)
-            try:
-                server.work.snapshot()
-            except OSError:
-                emit({'event': 'WORK_CHECKPOINT_FAILED'})
-    threading.Thread(target=tick, daemon=True, name='work-clock').start()
+    stop = threading.Event()
+    worker = threading.Thread(target=run_work_clock, args=(server.work, stop),
+                              daemon=True, name='work-clock')
+    worker.start()
     print('CAPTION_PRINTER_READY http://127.0.0.1:5500', flush=True)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        stop.set()
+        worker.join()
+        try:
+            server.work.checkpoint()
+        except Exception as error:
+            emit({'event': 'WORK_SHUTDOWN_CHECKPOINT_FAILED', 'error': repr(error)})
+        server.server_close()
