@@ -1428,6 +1428,15 @@ class Audio:
                     else:
                         caption_text = data_json["content"]
 
+                    # These dedicated visual-body services own playback outside the
+                    # three local player paths. Preserve their existing caption
+                    # delivery until those services expose playback lifecycle events.
+                    if self.config.get("visual_body") in (
+                        "xuniren", "EasyAIVtuber", "digital_human_video_player",
+                        "live2d_TTS_LLM_GPT_SoVITS_Vtuber",
+                    ):
+                        await self._publish_playback_caption(data_json, caption_text)
+
                     # 洛曦 直播弹幕助手
                     if self.config.get("luoxi_project", "Live_Comment_Assistant", "enable") and \
                         "音频播放时" in self.config.get("luoxi_project", "Live_Comment_Assistant", "trigger_position"):

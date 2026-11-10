@@ -20,7 +20,7 @@ class StopPlayback(BaseException):
 
 
 class PlaybackTimingTests(unittest.TestCase):
-    def exercise_player(self, player):
+    def exercise_player(self, player, visual_body=None):
         events = []
         tree = ast.parse((ROOT / 'utils/audio.py').read_text())
         audio_class = next(item for item in tree.body if isinstance(item, ast.ClassDef) and item.name == 'Audio')
@@ -99,6 +99,7 @@ class PlaybackTimingTests(unittest.TestCase):
                     ('captions',): {'enable': True, 'file_path': 'unused'},
                     ('web_captions_printer', 'enable'): True,
                     ('choose_song',): {},
+                    ('visual_body',): visual_body,
                 }
                 return values.get(keys, False)
 
@@ -135,6 +136,9 @@ class PlaybackTimingTests(unittest.TestCase):
             get_random_value=lambda a, b: 1,
         )
         instance._song_overlap_wanted = lambda data: False
+        async def delegated_play(path):
+            events.append('delegated-play')
+        instance.xuniren_api = delegated_play
         async def callback():
             pass
         instance.send_audio_play_info_to_callback = callback
@@ -145,6 +149,9 @@ class PlaybackTimingTests(unittest.TestCase):
         self.assertNotIn('error', events)
         self.assertEqual(events.count('caption'), 1)
         self.assertEqual(events.count('file-caption'), 1)
+        if visual_body:
+            self.assertIn('delegated-play', events)
+            return
         self.assertLess(events.index('pre-play-delay'), events.index('actual-start'))
         self.assertLess(events.index('actual-start'), events.index('caption'))
         if player == 'pygame':
@@ -159,6 +166,9 @@ class PlaybackTimingTests(unittest.TestCase):
 
     def test_audio_player_v2(self):
         self.exercise_player('audio_player_v2')
+
+    def test_delegated_body_retains_legacy_caption_delivery(self):
+        self.exercise_player('pygame', visual_body='xuniren')
 
 
 if __name__ == '__main__':
