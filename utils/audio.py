@@ -20,6 +20,7 @@ from utils.audio_handle.audio_player import AUDIO_PLAYER
 from utils.audio_handle.playback_stream import PlaybackStream
 from utils.audio_handle.bgm_player import BGMPlayer
 from utils.audio_handle.ducking import clamp_ratio, duck_step
+from utils.playback_signals import PlaybackSignals
 import utils.my_global as my_global
 
 
@@ -1364,7 +1365,16 @@ class Audio:
         return temp_path
 
 
-    # 只进行普通音频播放   
+    async def _publish_playback_caption(self, data_json, caption_text):
+        """Called once after the actual playback start, never on enqueue."""
+        captions_config = self.config.get("captions")
+        if captions_config and captions_config["enable"] and caption_text:
+            self.common.write_content_to_file(captions_config["file_path"], caption_text, write_log=False)
+        if self.config.get("web_captions_printer", "enable") and caption_text:
+            await self.common.send_to_web_captions_printer(
+                self.config.get("web_captions_printer", "api_ip_port"), {**data_json, "content": caption_text})
+
+    # 只进行普通音频播放
     async def only_play_audio(self):
         try:
             try:
@@ -1375,6 +1385,7 @@ class Audio:
                 logger.error("pygame mixer_normal初始化失败，普通音频将无法正常播放，请检查声卡是否正常！")
 
             while True:
+                playback_signal = None
                 try:
                     # 获取线程锁，避免同时操作
                     with Audio.voice_tmp_path_queue_lock:
@@ -1416,17 +1427,6 @@ class Audio:
                             caption_text = f"♪ {song_stem}"
                     else:
                         caption_text = data_json["content"]
-
-                    captions_config = self.config.get("captions")
-                    if captions_config["enable"] and caption_text:
-                        # 输出当前播放的音频文件的文本内容到字幕文件中
-                        self.common.write_content_to_file(captions_config["file_path"], caption_text, write_log=False)
-
-
-                    # 判断是否发送web字幕打印机
-                    if self.config.get("web_captions_printer", "enable") and caption_text:
-                        await self.common.send_to_web_captions_printer(
-                            self.config.get("web_captions_printer", "api_ip_port"), {**data_json, "content": caption_text})
 
                     # 洛曦 直播弹幕助手
                     if self.config.get("luoxi_project", "Live_Comment_Assistant", "enable") and \
@@ -1484,6 +1484,17 @@ class Audio:
                     else:
                         # 根据播放器类型进行区分
                         if self.config.get("play_audio", "player") in ["audio_player", "audio_player_v2"]:
+                            # Both external players enqueue asynchronously. Only their
+                            # actual start callback can authorize caption publication.
+                            external_signal = PlaybackSignals(speech=data_json.get("type") != "song")
+                            await asyncio.to_thread(external_signal.send, "prepare")
+                            caption_data = dict(data_json)
+                            def publish_external(data=caption_data, text=caption_text):
+                                try:
+                                    asyncio.run(self._publish_playback_caption(data, text))
+                                except Exception:
+                                    logger.error("外部播放器起播字幕发送失败")
+                            external_signal.watch_external(publish_external)
                             if "insert_index" in data_json:
                                 data_json = {
                                     "type": data_json["type"],
@@ -1509,7 +1520,9 @@ class Audio:
                                     },
                                     "speed": 1
                                 }
-                            Audio.audio_player.play(data_json)
+                            data_json["stage_playback"] = external_signal.metadata
+                            if not Audio.audio_player.play(data_json):
+                                external_signal.end()
                         else:
                             logger.debug(f"voice_tmp_path={voice_tmp_path}")
                             import pygame
@@ -1517,9 +1530,19 @@ class Audio:
                             try:
                                 # 旧路径（同时播关闭时）歌也在 mixer_normal 上放，要告诉 BGM 这不是人声
                                 Audio.normal_playing_song = data_json.get("type") == "song"
+                                playback_signal = PlaybackSignals(speech=data_json.get("type") != "song")
+                                await asyncio.to_thread(playback_signal.send, "prepare")
                                 # 使用pygame播放音频
                                 Audio.mixer_normal.music.load(voice_tmp_path)
                                 Audio.mixer_normal.music.play()
+                                if Audio.mixer_normal.music.get_busy():
+                                    try:
+                                        await asyncio.gather(
+                                            asyncio.to_thread(playback_signal.start),
+                                            self._publish_playback_caption(data_json, caption_text),
+                                        )
+                                    except Exception:
+                                        logger.error("起播字幕发送失败，音频继续播放")
 
                                 # 点歌歌词：后台按播放进度逐句发字幕，切歌/播完时停。不阻塞播放
                                 lyric_stop = None
@@ -1599,6 +1622,8 @@ class Audio:
                 except Exception as e:
                     logger.error(traceback.format_exc())
                 finally:
+                    if playback_signal is not None:
+                        await asyncio.to_thread(playback_signal.end)
                     Audio.normal_playing_song = False
                     # 恢复文案这一步必须放在 finally。两条流各占一个 channel 之后，
                     # 文案被暂停时 get_busy() 仍为真，文案线程会一直在 while 里等，
