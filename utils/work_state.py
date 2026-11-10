@@ -352,8 +352,10 @@ class WorkState:
             raise ValueError("user_id is required (max 200 characters)")
         # Local demo identities only. Platform integration must supply a trusted
         # platform uid. Strip invisible formatting before compatibility folding.
+        # Python with Unicode 13 data does not yet classify U+0890/U+0891 as Cf.
         user_id = "".join(char for char in user_id
-                          if unicodedata.category(char) != "Cf" and char != "\u034f")
+                          if unicodedata.category(char) != "Cf"
+                          and char not in ("\u034f", "\u0890", "\u0891"))
         user_id = unicodedata.normalize("NFKC", user_id).strip().casefold()
         if not user_id:
             raise ValueError("user_id is required (max 200 characters)")

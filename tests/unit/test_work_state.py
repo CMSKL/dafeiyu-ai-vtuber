@@ -276,7 +276,7 @@ class WorkStateTests(unittest.TestCase):
         self.work.start_event("identities")
         self.assertTrue(self.work.vote("identities", "alice", 1)["accepted"])
         aliases = ["alice ", " alice", "ALICE", "Alice", "alice\xa0", "alice\u200b",
-                   "ａｌｉｃｅ", "alice\u034f"]
+                   "ａｌｉｃｅ", "alice\u034f", "alice\u0890", "alice\u0891"]
         # Cover every Cf code point supported by this Python Unicode database.
         aliases.extend("alice" + chr(point) for point in range(sys.maxunicode + 1)
                        if unicodedata.category(chr(point)) == "Cf")
