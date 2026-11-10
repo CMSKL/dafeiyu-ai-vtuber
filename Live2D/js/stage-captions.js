@@ -5,7 +5,7 @@
   const style=document.createElement('style');
   style.textContent=`#stage-caption{position:absolute;z-index:8;left:50%;bottom:54px;transform:translateX(-50%);width:1240px;min-height:70px;padding:16px 28px;border-radius:18px;background:rgba(5,22,42,.78);border:1px solid rgba(170,225,245,.3);box-shadow:0 5px 24px #00102033;color:#f3fbff;text-shadow:0 2px 3px #0008;font:500 36px/1.5 "Microsoft YaHei",sans-serif;letter-spacing:1px;white-space:pre-wrap;overflow-wrap:anywhere;text-align:center;pointer-events:none}#stage-caption[hidden]{display:none}#stage[data-layout="clean-portrait"] #stage-caption{width:920px;bottom:145px;font-size:40px;padding:18px 26px}`;
   document.head.appendChild(style);
-  let timer=0,hideTimer=0,lastId='',generation=0;
+  let timer=0,hideTimer=0,lastId='',lastReaction='',generation=0;
   const params=new URLSearchParams(location.search);
   window.__stageCaption={state:'idle'};
   function show(text,id){
@@ -35,7 +35,12 @@
       if(!response.ok)throw new Error('caption service unavailable');
       const data=await response.json(),id=String(data.id)+':'+String(data.at);
       const age=Date.now()/1000-Number(data.at);
-      if(data.text && age>=-2 && age<45 && id!==lastId){lastId=id;show(data.text,id);}
+      const reaction=data.work && data.work.reaction;
+      const reactionAge=reaction?Date.now()/1000-Number(reaction.at):Infinity;
+      // An inspection reaction waits for speech to finish and uses this same caption box.
+      if(reaction && reaction.id!==lastReaction && reactionAge>=-2 && reactionAge<45 && !data.speaking){
+        lastReaction=reaction.id;lastId=id;show(reaction.text,'work-'+reaction.id);
+      }else if(data.text && age>=-2 && age<45 && id!==lastId){lastId=id;show(data.text,id);}
     }catch{/* 字幕离线不影响角色渲染和语音。 */}
     setTimeout(poll,250);
   }
