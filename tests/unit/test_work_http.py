@@ -160,10 +160,10 @@ class WorkHTTPTests(unittest.TestCase):
         self.assertEqual(log.call_args_list[0].args[0]["event"], "WORK_CHECKPOINT_FAILED")
         self.assertEqual(log.call_args_list[1].args[0]["event"], "WORK_CHECKPOINT_RETRY_FAILED")
         self.assertIn("ValueError", log.call_args_list[0].args[0]["error"])
-        self.assertEqual(json.loads(self.work.path.read_text())["salary"], 30)
+        self.assertEqual(json.loads(self.work.path.read_text(encoding="utf-8"))["salary"], 30)
 
     def test_invalid_checkpoint_recovers_before_handler_is_used(self):
-        self.work.path.write_text("{")
+        self.work.path.write_text("{", encoding="utf-8")
         with self.assertLogs("utils.work_state", level="WARNING"):
             self.server.work = WorkState(self.work.path, clock=lambda: self.now)
         status, _, data = self.request("GET", "/state")

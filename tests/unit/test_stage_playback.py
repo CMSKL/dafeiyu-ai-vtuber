@@ -22,7 +22,7 @@ class StopPlayback(BaseException):
 class PlaybackTimingTests(unittest.TestCase):
     def exercise_player(self, player, visual_body=None):
         events = []
-        tree = ast.parse((ROOT / 'utils/audio.py').read_text())
+        tree = ast.parse((ROOT / 'utils/audio.py').read_text(encoding="utf-8"))
         audio_class = next(item for item in tree.body if isinstance(item, ast.ClassDef) and item.name == 'Audio')
         names = {'only_play_audio', '_publish_playback_caption'}
         methods = [item for item in audio_class.body if getattr(item, 'name', '') in names]

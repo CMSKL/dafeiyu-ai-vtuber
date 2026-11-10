@@ -146,7 +146,7 @@ class WorkStateTests(unittest.TestCase):
         self.now += 5
         self.assertEqual(self.work.snapshot()["focus_seconds"], 3)
         self.work.checkpoint()
-        stored = json.loads(self.path.read_text())
+        stored = json.loads(self.path.read_text(encoding="utf-8"))
         self.assertEqual(stored["day"], "1970-01-02")
 
     def test_restart_after_clock_rollback_matches_live_control(self):
@@ -168,7 +168,7 @@ class WorkStateTests(unittest.TestCase):
         self.assertEqual(WorkState(self.path, clock=lambda: now).snapshot(), control.snapshot())
 
     def test_bad_checkpoints_are_quarantined_and_replaced(self):
-        valid = json.loads(self.path.read_text())
+        valid = json.loads(self.path.read_text(encoding="utf-8"))
         bad_values = ["{", "", "not JSON", "[]"]
         mutations = [
             ("version", 2), ("ends_at", "1060"), ("ends_at", True),
@@ -185,7 +185,7 @@ class WorkStateTests(unittest.TestCase):
         bad_values.append(json.dumps(missing))
         for index, content in enumerate(bad_values, 1):
             with self.subTest(content=content):
-                self.path.write_text(content)
+                self.path.write_text(content, encoding="utf-8")
                 with self.assertLogs("utils.work_state", level="WARNING"):
                     fresh = WorkState(self.path, clock=lambda: self.now)
                 quarantined = list(self.path.parent.glob("work-state.json.bad-*"))
@@ -193,7 +193,7 @@ class WorkStateTests(unittest.TestCase):
                 self.assertIn(content.encode(), [path.read_bytes() for path in quarantined])
                 self.assertEqual(fresh.snapshot()["salary"], 0)
                 self.assertEqual(fresh.snapshot()["speed_multiplier"], 1)
-                self.assertEqual(json.loads(self.path.read_text())["version"], 1)
+                self.assertEqual(json.loads(self.path.read_text(encoding="utf-8"))["version"], 1)
 
     def test_late_settlement_reaction_is_fresh_and_emitted_once(self):
         self.work.start_event("late")
@@ -315,24 +315,33 @@ class WorkStateTests(unittest.TestCase):
             with self.assertLogs("utils.work_state", level="WARNING"):
                 view = self.work.control("pause")
         self.assertEqual(view["status"], "paused")
-        self.assertEqual(self.work.state, json.loads(self.path.read_text()))
+        self.assertEqual(self.work.state, json.loads(self.path.read_text(encoding="utf-8")))
 
     def test_loading_old_settled_events_preserves_counts_and_prunes_history(self):
         self.work.start_event("legacy")
         self.work.vote("legacy", "viewer", 2)
         self.now += 30
         self.work.checkpoint()
-        stored = json.loads(self.path.read_text())
+        stored = json.loads(self.path.read_text(encoding="utf-8"))
         event = stored["events"]["legacy"]
         event["votes"] = {"0" * 64: 2}  # Original v1 kept votes after settlement.
         for index in range(50):
             stored["events"][f"old-{index}"] = {**event, "id": f"old-{index}"}
-        self.path.write_text(json.dumps(stored))
+        self.path.write_text(json.dumps(stored), encoding="utf-8")
         restored = WorkState(self.path, clock=lambda: self.now)
         self.assertEqual(restored.snapshot()["event"]["counts"], [0, 1])
         self.assertEqual(restored.snapshot()["event"]["settlement_count"], 1)
         self.assertEqual(len(restored.state["events"]), EVENT_HISTORY_LIMIT + 1)
         self.assertTrue(all("votes" not in item for item in restored.state["events"].values()))
+
+    def test_state_file_is_utf8_regardless_of_system_locale(self):
+        # The service always writes UTF-8. A reader that follows the system
+        # default (GBK on Windows) fails on non-ASCII content.
+        self.work.set_message("观众甲", "今天先做完哪件小事")
+        self.work.checkpoint()
+        raw = self.path.read_bytes()
+        self.assertIn("今天先做完哪件小事".encode("utf-8"), raw)
+        self.assertEqual(json.loads(raw.decode("utf-8"))["message"]["text"], "今天先做完哪件小事")
 
     def test_long_paused_gap_still_pays_nothing(self):
         self.now += 7
