@@ -5,12 +5,13 @@
 <link rel="stylesheet" href="./css/live2d.css">
 <script src="./js/model_name.js?v=20261027-mao"></script>
 <script src="./js/live2dcubismcore.js?v=5.1.0"></script>
-<link rel="stylesheet" href="./css/stage-hud.css?v=work1">
+<link rel="stylesheet" href="./css/stage-hud.css?v=work1.1">
 <style>
 *{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#081b35}
 body{display:grid;place-items:center}
 #stage{position:absolute;width:1080px;height:1920px;overflow:hidden;isolation:isolate;transform-origin:center center;background:#102e51 url('./assets/aquarium-portrait-20261028.png') center/cover no-repeat}
-#model-surface{position:absolute;width:900px;height:1040px;left:-22px;top:500px;transform:scale(1.25);transform-origin:0 0;z-index:2}
+/* Crop the lower body at stage y=1180 so it cannot reappear below the desk. */
+#model-surface{position:absolute;width:900px;height:1040px;left:-22px;top:380px;transform:scale(1.25);transform-origin:0 0;clip-path:inset(0 0 400px);z-index:2}
 #landlord{width:900px!important;height:1040px!important;margin:0;background:transparent}
 #live2d{width:900px!important;height:1040px!important;display:block}
 .message,#controller{display:none!important}

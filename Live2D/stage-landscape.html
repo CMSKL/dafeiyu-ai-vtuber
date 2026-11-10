@@ -5,12 +5,13 @@
 <link rel="stylesheet" href="./css/live2d.css">
 <script src="./js/model_name.js?v=20261027-mao"></script>
 <script src="./js/live2dcubismcore.js?v=5.1.0"></script>
-<link rel="stylesheet" href="./css/stage-hud.css?v=work1">
+<link rel="stylesheet" href="./css/stage-hud.css?v=work1.1">
 <style>
 *{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#081b35}
 body{display:grid;place-items:center}
 #stage{position:absolute;width:1920px;height:1080px;overflow:hidden;isolation:isolate;transform-origin:center center;background:#102e51 url('./assets/aquarium-landscape-20261028.png') center/cover no-repeat}
-#model-surface{position:absolute;width:900px;height:1040px;left:510px;top:-5px;transform:scale(1);transform-origin:0 0;z-index:2}
+/* Match portrait's vertical proportions; keep the face centered horizontally. */
+#model-surface{position:absolute;width:900px;height:1040px;left:656px;top:213.75px;transform:scale(.703125);transform-origin:0 0;clip-path:inset(0 0 400px);z-index:2}
 #landlord{width:900px!important;height:1040px!important;margin:0;background:transparent}
 #live2d{width:900px!important;height:1040px!important;display:block}
 .message,#controller{display:none!important}
